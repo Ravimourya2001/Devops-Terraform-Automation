@@ -1,0 +1,102 @@
+name: Terraform CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  #TF_VAR_gitlab_token: ${{ secrets.GITLAB_ACCESS_TOKEN }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.MY_AWS_KEY }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.MY_AWS_ACCESS_KEY }}
+  AWS_DEFAULT_REGION: "us-east-1"
+
+jobs:
+  validate:
+    name: Validate Terraform
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Terraform Version
+        run: terraform --version
+
+      - name: Initialize Terraform
+        run: terraform init -backend-config="tfstate.config"
+
+      - name: Validate Terraform
+        run: terraform validate
+
+  plan:
+    name: Plan Terraform
+    runs-on: ubuntu-latest
+    needs: validate
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.5
+
+      - name: Initialize Terraform
+        run: terraform init -backend-config="tfstate.config"
+
+      - name: Plan Terraform
+        run: terraform plan -out="planfile"
+
+      - name: Upload Planfile
+        uses: actions/upload-artifact@v3
+        with:
+          name: planfile
+          path: planfile
+
+  apply:
+    name: Apply Terraform
+    runs-on: ubuntu-latest
+    container:
+      image: registry.gitlab.com/gitlab-org/gitlab-build-images:terraform
+    needs: plan
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.5        
+
+      - name: Download Planfile
+        uses: actions/download-artifact@v3
+        with:
+          name: planfile
+
+      - name: Apply Terraform Plan
+        run: terraform apply -input=false planfile
+    if: github.event_name == 'workflow_dispatch'
+
+  destroy:
+    name: Destroy Terraform
+    runs-on: ubuntu-latest
+    container:
+      image: registry.gitlab.com/gitlab-org/gitlab-build-images:terraform
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.5     
+
+      - name: Initialize Terraform
+        run: terraform init -backend-config="tfstate.config"
+
+      - name: Destroy Terraform
+        run: terraform destroy --auto-approve
+    if: github.event_name == 'workflow_dispatch'
